@@ -3,7 +3,7 @@ import bcrypt from "bcryptjs";
 import type { User } from "@/types";
 import { db } from "./db";
 
-const JWT_SECRET = process.env.SESSION_SECRET || "contriblens-local-jwt-secret-key-32-chars-min";
+const JWT_SECRET = process.env.JWT_SECRET || process.env.SESSION_SECRET || "contriblens-local-jwt-secret-key-32-chars-min";
 const AUTH_COOKIE_NAME = "contriblens_session";
 
 export interface SessionPayload {
@@ -93,9 +93,24 @@ export async function getCurrentUser(req?: Request): Promise<User | null> {
     const session = verifySessionToken(token);
     if (!session || !session.userId) return null;
 
-    // 1. Try local DB
-    const localUser = db.getUserById(session.userId);
+    // 1. Try local DB by ID or by email
+    let localUser = db.getUserById(session.userId);
+    if (!localUser && session.email) {
+      localUser = db.getUserByEmail(session.email);
+    }
     if (localUser) return localUser;
+
+    // 2. Self-heal: If session JWT is cryptographically valid and signed with JWT_SECRET,
+    // restore the user record in DB so sessions are resilient across server restarts and DB wipes
+    if (session.userId && session.email) {
+      localUser = db.createUser({
+        id: session.userId,
+        email: session.email,
+        name: session.name || session.email.split("@")[0] || "Contributor",
+        createdAt: new Date().toISOString(),
+      });
+      return localUser;
+    }
 
     return null;
   } catch (error) {

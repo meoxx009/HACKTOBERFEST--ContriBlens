@@ -145,10 +145,44 @@ export default function LoginPage() {
           {error && (
             <div
               role="alert"
-              className="p-3.5 rounded-xl bg-rosewood/20 border border-rosewood/40 text-xs text-sustainableLinen flex items-start gap-2.5 animate-in fade-in duration-200"
+              className="p-3.5 rounded-xl bg-rosewood/20 border border-rosewood/40 text-xs text-sustainableLinen flex flex-col gap-2.5 animate-in fade-in duration-200"
             >
-              <AlertCircle className="w-4 h-4 text-electricTangerine shrink-0 mt-0.5" />
-              <span className="leading-relaxed">{error}</span>
+              <div className="flex items-start gap-2.5">
+                <AlertCircle className="w-4 h-4 text-electricTangerine shrink-0 mt-0.5" />
+                <span className="leading-relaxed">{error}</span>
+              </div>
+              {error.includes("GitHub sign-in is not enabled yet") && (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setOauthLoading(true);
+                    setError(null);
+                    try {
+                      const res = await fetch("/api/auth/oauth/github", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ code: "mock_code" }),
+                      });
+                      const data = await res.json();
+                      if (res.ok && data.ok) {
+                        setAuthState("success");
+                        router.push(getNextRedirect());
+                        router.refresh();
+                      } else {
+                        setError("Failed to start local demo session.");
+                        setOauthLoading(false);
+                      }
+                    } catch {
+                      setError("Failed to start local demo session.");
+                      setOauthLoading(false);
+                    }
+                  }}
+                  className="self-start px-3 py-1.5 rounded-lg bg-lemonChiffon text-black text-xs font-semibold hover:bg-sustainableLinen transition-colors inline-flex items-center gap-1.5 press-spring"
+                >
+                  <span>Continue in Local Demo Mode</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </button>
+              )}
             </div>
           )}
 
