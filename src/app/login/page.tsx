@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import ContribLensLogo from "@/components/ContribLensLogo";
 import { ArrowLeft, Lock, Mail, ArrowRight, AlertCircle, CheckCircle2 } from "lucide-react";
 import { getSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/supabase-browser";
+import { formatOAuthError } from "@/lib/oauth-error";
 
 type AuthState = "idle" | "focused" | "invalid" | "submitting" | "success" | "server-error";
 
@@ -106,7 +107,7 @@ export default function LoginPage() {
     } catch (err: any) {
       setAuthState("server-error");
       const refId = "ERR-" + Math.random().toString(36).substring(2, 8).toUpperCase();
-      setError(err?.message || `Unable to complete GitHub sign-in (Ref: ${refId}). Please retry.`);
+      setError(formatOAuthError(err, refId));
       setOauthLoading(false);
     }
   };

@@ -8,6 +8,11 @@ import {
   signSessionToken,
   verifySessionToken,
 } from "@/lib/auth";
+import {
+  formatOAuthError,
+  isProviderDisabledError,
+  GITHUB_PROVIDER_DISABLED_MESSAGE,
+} from "@/lib/oauth-error";
 import { calculatePasswordStrength } from "@/lib/password";
 import { db } from "@/lib/db";
 import { POST as loginHandler } from "@/app/api/auth/login/route";
@@ -147,6 +152,59 @@ describe("Prompt P5 — Authentication & Glass Auth Screens", () => {
       expect(forgotContent).toContain("Reset Link Dispatched");
       expect(forgotContent).toContain("If an account exists for");
       expect(forgotContent).toContain("min-h-[44px]");
+    });
+  });
+
+  describe("GitHub OAuth Provider Hardening & Friendly Error Mapping", () => {
+    it("maps mocked signInWithOAuth rejection with 'provider is not enabled' to actionable dashboard instructions without exposing raw JSON", () => {
+      // 1. Raw JSON error returned by Supabase when provider is disabled
+      const mockSupabaseError = {
+        code: 400,
+        error_code: "validation_failed",
+        msg: "Unsupported provider: provider is not enabled",
+      };
+
+      expect(isProviderDisabledError(mockSupabaseError)).toBe(true);
+
+      const formatted = formatOAuthError(mockSupabaseError);
+      expect(formatted).toBe(GITHUB_PROVIDER_DISABLED_MESSAGE);
+      expect(formatted).toContain("Authentication → Providers → GitHub");
+      // Invariant: NEVER exposes raw JSON or error codes to end user
+      expect(formatted).not.toContain("validation_failed");
+      expect(formatted).not.toContain("400");
+      expect(formatted).not.toContain('{"code":');
+    });
+
+    it("handles Error objects and serialized strings containing 'provider is not enabled'", () => {
+      const errorObj = new Error("Unsupported provider: provider is not enabled");
+      expect(isProviderDisabledError(errorObj)).toBe(true);
+      expect(formatOAuthError(errorObj)).toBe(GITHUB_PROVIDER_DISABLED_MESSAGE);
+
+      const errorStr = '{"code":400,"error_code":"validation_failed","msg":"Unsupported provider: provider is not enabled"}';
+      expect(isProviderDisabledError(errorStr)).toBe(true);
+      expect(formatOAuthError(errorStr)).toBe(GITHUB_PROVIDER_DISABLED_MESSAGE);
+    });
+
+    it("leaves unrelated errors untouched and passes standard fallback", () => {
+      const networkError = new Error("Network connection lost");
+      expect(isProviderDisabledError(networkError)).toBe(false);
+      expect(formatOAuthError(networkError)).toBe("Network connection lost");
+
+      const nullError = null;
+      expect(isProviderDisabledError(nullError)).toBe(false);
+      const fallback = formatOAuthError(nullError, "TEST-REF");
+      expect(fallback).toBe("Unable to complete GitHub sign-in (Ref: TEST-REF). Please retry.");
+    });
+
+    it("verifies login, signup, and callback screens implement friendly OAuth error mapping", () => {
+      expect(loginContent).toContain("formatOAuthError");
+      expect(signupContent).toContain("formatOAuthError");
+
+      const callbackPath = path.join(process.cwd(), "src", "app", "auth", "callback", "page.tsx");
+      const callbackContent = fs.readFileSync(callbackPath, "utf-8");
+      expect(callbackContent).toContain("formatOAuthError");
+      expect(callbackContent).toContain("exchangeCodeForSession");
+      expect(callbackContent).toContain("destination");
     });
   });
 });

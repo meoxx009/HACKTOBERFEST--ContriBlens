@@ -3,6 +3,7 @@
 import React, { useEffect, useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { getSupabaseBrowserClient, isSupabaseConfigured } from '@/lib/supabase-browser';
+import { formatOAuthError } from '@/lib/oauth-error';
 import ContribLensLogo from '@/components/ContribLensLogo';
 
 function AuthCallbackInner() {
@@ -33,16 +34,49 @@ function AuthCallbackInner() {
       // Check URL for error from provider
       const urlError = searchParams.get('error_description') || searchParams.get('error');
       if (urlError) {
-        setError(urlError);
+        setError(formatOAuthError(urlError));
         return;
       }
 
+      // Check URL hash for error fragment
+      if (typeof window !== 'undefined' && window.location.hash) {
+        try {
+          const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+          const hashError = hashParams.get('error_description') || hashParams.get('error');
+          if (hashError) {
+            setError(formatOAuthError(hashError));
+            return;
+          }
+        } catch {
+          // ignore hash parsing failure
+        }
+      }
+
       try {
-        // 1. Check existing session from Supabase client
+        // 1. Explicit PKCE code exchange if ?code= is in searchParams
+        const code = searchParams.get('code');
+        if (code) {
+          try {
+            const { data: exchangeData, error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
+            if (exchangeError) {
+              setError(formatOAuthError(exchangeError));
+              return;
+            }
+            if (exchangeData?.session?.user) {
+              await syncWithBackend(exchangeData.session, destination);
+              return;
+            }
+          } catch (exErr) {
+            setError(formatOAuthError(exErr));
+            return;
+          }
+        }
+
+        // 2. Check existing session from Supabase client
         const { data: { session }, error: sessionError } = await supabase.auth.getSession();
 
         if (sessionError) {
-          setError(sessionError.message);
+          setError(formatOAuthError(sessionError));
           return;
         }
 
@@ -51,7 +85,7 @@ function AuthCallbackInner() {
           return;
         }
 
-        // 2. Listen to onAuthStateChange in case token exchange is in flight
+        // 3. Listen to onAuthStateChange in case token exchange is in flight
         const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, currentSession) => {
           if (!isMounted) return;
           if (currentSession?.user) {
@@ -60,7 +94,7 @@ function AuthCallbackInner() {
           }
         });
 
-        // 3. Set a safety timeout
+        // 4. Set a safety timeout
         const timeout = setTimeout(() => {
           if (isMounted) {
             setError('GitHub authentication timed out. Please try logging in again.');
@@ -73,7 +107,7 @@ function AuthCallbackInner() {
         };
       } catch (err: any) {
         if (isMounted) {
-          setError(err?.message || 'Authentication error.');
+          setError(formatOAuthError(err));
         }
       }
     }
